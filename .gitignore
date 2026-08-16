@@ -1,0 +1,12 @@
+/target
+*.m4b
+*.wav
+*.cue
+*.script.json
+.antioch_*/
+logs/
+
+# Sample / test files
+sample*.md
+sample*.json
+*.deb
