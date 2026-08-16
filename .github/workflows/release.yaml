@@ -318,6 +318,14 @@ jobs:
         shell: bash
         run: |
           cd antioch
+          # Strip Git for Windows' usr/bin from PATH: it ships its own
+          # link.exe (a POSIX symlink-creation helper, unrelated to MSVC's
+          # linker) which, under this bash shell, sits ahead of cl.exe's
+          # link.exe on PATH and gets invoked by rustc instead - producing
+          # "extra operand" errors from the wrong tool. ilammy/msvc-dev-cmd
+          # (used above) prepends MSVC's link.exe dir to PATH, but Git's
+          # usr/bin still wins unless removed here.
+          export PATH="$(echo "$PATH" | tr ':' '\n' | grep -v '/[Gg]it/usr/bin' | paste -sd: -)"
           cargo build --release --features "ggml llama" --target x86_64-pc-windows-msvc
         env:
           QWENTTS_LIB_DIR: ${{ github.workspace }}/qwentts.cpp/build/lib
