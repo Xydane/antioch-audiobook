@@ -138,7 +138,13 @@ jobs:
           # lets build.rs link a single copy of the ggml static archives into
           # the final binary instead of two conflicting copies.
           rm -rf ggml
-          cp -r ../qwentts.cpp/ggml .
+          # -L: dereference symlinks when copying. qwentts.cpp's ggml
+          # submodule contains an unrelated agent-instructions symlink
+          # (.pi/SYSTEM.md -> gg/SYSTEM.md); MSYS's cp on Windows cannot
+          # recreate that as a real symlink without Developer Mode/admin,
+          # which fails the whole copy. Copying file contents instead is
+          # fine since nothing in the build depends on it being a symlink.
+          cp -rL ../qwentts.cpp/ggml .
 
       - name: Build llama.cpp (static, Vulkan)
         run: |
@@ -285,7 +291,13 @@ jobs:
           cd llama.cpp
           git checkout "${LLAMA_COMMIT}"
           rm -rf ggml
-          cp -r ../qwentts.cpp/ggml .
+          # -L: dereference symlinks when copying. qwentts.cpp's ggml
+          # submodule contains an unrelated agent-instructions symlink
+          # (.pi/SYSTEM.md -> gg/SYSTEM.md); MSYS's cp on Windows cannot
+          # recreate that as a real symlink without Developer Mode/admin,
+          # which fails the whole copy. Copying file contents instead is
+          # fine since nothing in the build depends on it being a symlink.
+          cp -rL ../qwentts.cpp/ggml .
 
       - name: Build llama.cpp (static, Vulkan)
         shell: bash
@@ -376,7 +388,13 @@ jobs:
           cd llama.cpp
           git checkout "${LLAMA_COMMIT}"
           rm -rf ggml
-          cp -r ../qwentts.cpp/ggml .
+          # -L: dereference symlinks when copying. qwentts.cpp's ggml
+          # submodule contains an unrelated agent-instructions symlink
+          # (.pi/SYSTEM.md -> gg/SYSTEM.md); MSYS's cp on Windows cannot
+          # recreate that as a real symlink without Developer Mode/admin,
+          # which fails the whole copy. Copying file contents instead is
+          # fine since nothing in the build depends on it being a symlink.
+          cp -rL ../qwentts.cpp/ggml .
 
       - name: Build llama.cpp (static, Metal)
         run: |
