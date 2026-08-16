@@ -224,8 +224,8 @@ jobs:
           $installer = "$env:RUNNER_TEMP\VulkanSDK-Installer.exe"
           curl.exe -L -o $installer $url
           & $installer --accept-licenses --default-answer --confirm-command install
-          "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}" | Out-File -Append $env:GITHUB_ENV
-          "C:\VulkanSDK\${env:VULKAN_VERSION}\bin" | Out-File -Append $env:GITHUB_ENV
+          "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "C:\VulkanSDK\${env:VULKAN_VERSION}\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Clone qwentts.cpp (with ggml submodule)
         shell: bash
@@ -349,7 +349,7 @@ jobs:
           # thread pool when OpenMP is off. GPU work runs on Metal regardless.
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF -DQWEN_SHARED=OFF -DGGML_METAL=ON \
-            -DGGML_OPENMP=OFF \
+            -DGGML_OPENMP=OFF -DGGML_BLAS=OFF \
             -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/qwentts.cpp/build/lib"
           cmake --build build --config Release -j"$(( $(sysctl -n hw.ncpu) + 1 ))"
 
@@ -366,7 +366,7 @@ jobs:
           cd llama.cpp
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF -DGGML_METAL=ON \
-            -DGGML_OPENMP=OFF \
+            -DGGML_OPENMP=OFF -DGGML_BLAS=OFF \
             -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_APP=OFF \
             -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/llama.cpp/build/lib"
