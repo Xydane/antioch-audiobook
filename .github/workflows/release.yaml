@@ -217,6 +217,21 @@ jobs:
         run: |
           choco install cmake ninja --no-progress
 
+      # windows-2022 runners have C:\mingw64 on PATH by default, so without
+      # forcing MSVC, CMake silently picks up MinGW's g++ instead of cl.exe.
+      # That breaks two things: -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded is
+      # an MSVC-only setting (silently ignored under GCC), and — observed in
+      # practice — the resulting vulkan-shaders-gen.exe crashes at startup
+      # with STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139) when the runner's PATH
+      # resolves its MinGW libstdc++/libgcc DLLs to a mismatched copy. Setting
+      # up the MSVC dev environment (adds cl.exe's dir to PATH ahead of
+      # mingw64) and pinning CC/CXX to cl for the two cmake configure steps
+      # below avoids MinGW entirely.
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Install Vulkan SDK (glslc + headers + vulkan-1.lib)
         shell: pwsh
         run: |
@@ -239,6 +254,7 @@ jobs:
         run: |
           cd qwentts.cpp
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
             -DBUILD_SHARED_LIBS=OFF -DQWEN_SHARED=OFF -DGGML_VULKAN=ON \
             -DGGML_OPENMP=OFF \
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
@@ -276,6 +292,7 @@ jobs:
         run: |
           cd llama.cpp
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
             -DBUILD_SHARED_LIBS=OFF -DGGML_VULKAN=ON \
             -DGGML_OPENMP=OFF \
             -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
