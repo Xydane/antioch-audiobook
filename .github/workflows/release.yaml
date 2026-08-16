@@ -190,7 +190,7 @@ jobs:
           tar -czf antioch-${{ github.ref_name }}-linux-x86_64.tar.gz antioch
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
           path: antioch/antioch-*.tar.gz
@@ -308,7 +308,7 @@ jobs:
           7z a -tzip antioch-${{ github.ref_name }}-windows-x86_64.zip antioch.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64
           path: antioch/antioch-*.zip
@@ -389,7 +389,7 @@ jobs:
           tar -czf antioch-${{ github.ref_name }}-macos-arm64.tar.gz antioch
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-arm64
           path: antioch/antioch-*.tar.gz
@@ -405,7 +405,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
