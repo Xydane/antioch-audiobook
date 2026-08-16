@@ -314,18 +314,19 @@ jobs:
             -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/llama.cpp/build/lib"
           cmake --build build --config Release
 
+      # Deliberately NOT `shell: bash`. In Git Bash the Git-for-Windows
+      # usr/bin directory is on PATH as the MSYS mount alias `/usr/bin`, and
+      # it ships its own link.exe (a POSIX symlink helper). It resolves ahead
+      # of MSVC's link.exe, so rustc invokes the wrong tool and fails with
+      # "/usr/bin/link: extra operand ...rcgu.o". Filtering PATH from inside
+      # bash is fragile (the entry is not spelled "/Git/usr/bin", and dropping
+      # "/usr/bin" outright removes the core utilities). pwsh never has Git's
+      # usr/bin on PATH, so link.exe resolves to the MSVC linker that
+      # ilammy/msvc-dev-cmd put there.
       - name: Build antioch (static, ggml + llama features)
-        shell: bash
+        shell: pwsh
         run: |
           cd antioch
-          # Strip Git for Windows' usr/bin from PATH: it ships its own
-          # link.exe (a POSIX symlink-creation helper, unrelated to MSVC's
-          # linker) which, under this bash shell, sits ahead of cl.exe's
-          # link.exe on PATH and gets invoked by rustc instead - producing
-          # "extra operand" errors from the wrong tool. ilammy/msvc-dev-cmd
-          # (used above) prepends MSVC's link.exe dir to PATH, but Git's
-          # usr/bin still wins unless removed here.
-          export PATH="$(echo "$PATH" | tr ':' '\n' | grep -v '/[Gg]it/usr/bin' | paste -sd: -)"
           cargo build --release --features "ggml llama" --target x86_64-pc-windows-msvc
         env:
           QWENTTS_LIB_DIR: ${{ github.workspace }}/qwentts.cpp/build/lib
