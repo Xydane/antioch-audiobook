@@ -514,4 +514,5 @@ jobs:
             ```
           files: |
             dist/*.tar.gz
+            dist/*.zip
             dist/sha256sums.txt
