@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "antioch"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "anyhow",
  "async-trait",
