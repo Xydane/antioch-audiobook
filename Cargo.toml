@@ -5,6 +5,9 @@ edition = "2021"
 description = "Markdown → M4B audiobook generator (llama.cpp LLM + qwentts.cpp TTS, no Python required)"
 authors = ["Xydane"]
 license = "MIT"
+repository = "https://github.com/Xydane/antioch-audiobook"
+homepage = "https://github.com/Xydane/antioch-audiobook"
+readme = "README.md"
 
 [[bin]]
 name = "antioch"
