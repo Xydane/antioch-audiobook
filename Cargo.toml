@@ -8,6 +8,8 @@ license = "MIT"
 repository = "https://github.com/Xydane/antioch-audiobook"
 homepage = "https://github.com/Xydane/antioch-audiobook"
 readme = "README.md"
+keywords = ["audiobook", "tts", "llm", "markdown", "m4b"]
+categories = ["command-line-utilities", "multimedia::audio"]
 
 [[bin]]
 name = "antioch"
