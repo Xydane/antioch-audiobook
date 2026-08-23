@@ -59,8 +59,39 @@ fn backend_enabled(env_var: &str, dir: &std::path::Path, base: &str) -> bool {
     }
 }
 
+/// Derive the binary's reported version from `git describe`, falling back to
+/// the Cargo.toml version when git is unavailable (e.g. a source tarball
+/// build with no `.git` directory).
+///
+/// On an exact tag (e.g. release CI building `v1.0.7`) this yields `v1.0.7`.
+/// Between tags it yields something like `v1.0.7-3-gabc1234`, and `-dirty`
+/// is appended when the working tree has uncommitted changes — both useful
+/// for identifying exactly what a locally-built binary contains.
+fn git_version(manifest_dir: &str) -> String {
+    let output = std::process::Command::new("git")
+        .args(["describe", "--tags", "--always", "--dirty"])
+        .current_dir(manifest_dir)
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => {
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        }
+        _ => format!("v{}", env!("CARGO_PKG_VERSION")),
+    }
+}
+
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+
+    // ── Version string: track the nearest git tag ─────────────────────────────
+    println!("cargo:rustc-env=ANTIOCH_VERSION={}", git_version(&manifest_dir));
+    // Rebuild when HEAD moves (new commit/checkout) or a tag is created,
+    // so the embedded version string stays current.
+    let git_dir = std::path::Path::new(&manifest_dir).join(".git");
+    println!("cargo:rerun-if-changed={}", git_dir.join("HEAD").display());
+    println!("cargo:rerun-if-changed={}", git_dir.join("refs").display());
+
     let ggml_active = std::env::var("CARGO_FEATURE_GGML").is_ok();
 
     // llama.cpp LLM backend — independent of the ggml feature.  When both

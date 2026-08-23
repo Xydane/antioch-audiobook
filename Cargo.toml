@@ -1,6 +1,6 @@
 [package]
 name = "antioch"
-version = "0.1.0"
+version = "1.0.7"
 edition = "2021"
 description = "Markdown → M4B audiobook generator (llama.cpp LLM + qwentts.cpp TTS, no Python required)"
 authors = ["Xydane"]

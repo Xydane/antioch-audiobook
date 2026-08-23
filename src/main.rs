@@ -62,7 +62,7 @@ const GGML_REF_ANCHOR_TEXT: &str =
 #[command(
     name = "antioch",
     about = "Markdown → M4B audiobook generator (llama.cpp + qwentts.cpp)",
-    version
+    version = env!("ANTIOCH_VERSION")
 )]
 struct Cli {
     #[command(subcommand)]
