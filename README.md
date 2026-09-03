@@ -27,6 +27,7 @@ antioch generate my-book.md --title "My Book" --author "Jane Doe"
   - [Backend feature flags](#backend-feature-flags)
   - [Build llama.cpp](#build-llamacpp)
   - [Build qwentts.cpp](#build-qwenttscpp)
+  - [CPU instruction-set portability](#cpu-instruction-set-portability-ggml_native)
   - [Build antioch](#build-antioch)
   - [The shared ggml story](#the-shared-ggml-story)
   - [Runtime library path](#runtime-library-path)
@@ -189,6 +190,31 @@ cd ../qwentts.cpp
 
 Output lands in `../qwentts.cpp/build/` (`libqwen.so`, `libggml*.so`).
 
+#### CPU instruction-set portability (`GGML_NATIVE`)
+
+ggml defaults to `GGML_NATIVE=ON`, which compiles the CPU backend with
+`-march=native` — tuned for **the machine that ran the build**. That is fine for
+a local build you only ever run on the same box, but a binary built on an
+AVX-512-capable machine will contain AVX-512 instructions and die with
+`Illegal instruction` (SIGILL) on any CPU without AVX-512 — every AMD Zen 1–3
+part, Intel's hybrid E-core desktop chips, and older Xeons like Broadwell-EP.
+The fault happens while ggml-cpu initialises, *before* any GPU backend is
+touched, so it kills Vulkan/CUDA runs too.
+
+If you intend to move the binary between machines, pin a portable baseline:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -DGGML_NATIVE=OFF \
+  -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON \
+  -DGGML_AVX512=OFF -DGGML_AVX_VNNI=OFF -DGGML_AMX_TILE=OFF \
+  ...
+```
+
+This targets Haswell / Excavator (2013+) and is what the CI release builds use.
+CPU code is only the fallback path anyway — the GPU backend does the real work.
+
+
 If `buildcuda.sh` reports *CUDA Toolkit not found*, point CMake at your toolkit:
 
 ```bash
@@ -266,6 +292,11 @@ to `-1`, i.e. all layers). Pass `--llm-gpu-layers 0` to force CPU-only.
 | `QWENTTS_SHARED=1` | Link `libqwen.so` (dynamic) instead of the static `libqwen-core.a` |
 | `QWENTTS_CUDA=1` | Also link the CUDA GGML backend (static builds) |
 | `QWENTTS_VULKAN=1` | Also link the Vulkan GGML backend (static builds) |
+
+> **Note** — `GGML_NATIVE`/`-march=native` is a *CMake* option for
+> llama.cpp and qwentts.cpp, not an antioch env var. See
+> [CPU instruction-set portability](#cpu-instruction-set-portability-ggml_native)
+> if you plan to run the binary on a different CPU than you built it on.
 
 ---
 
