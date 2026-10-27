@@ -176,6 +176,10 @@ impl AudioMerger {
             }
         }
 
+        // Per-segment PCM is no longer needed; free ~1x the book's size before
+        // the final pass and the encode.
+        drop(segments);
+
         // ── 4. Write temp WAV ─────────────────────────────────────────────────
         // ── 4. Compress ───────────────────────────────────────────────────────────────
         if let Some(ref cfg) = self.compressor {
@@ -186,9 +190,13 @@ impl AudioMerger {
             compress_i16(&mut combined, TARGET_SAMPLE_RATE, cfg);
         }
 
-        let tmp_wav = output.with_extension("_tmp_combined.wav");
-        write_wav_i16(&combined, TARGET_SAMPLE_RATE, TARGET_CHANNELS, &tmp_wav)?;
-        info!("Temp WAV written: {}", tmp_wav.display());
+        // Raw headerless PCM, NOT a WAV: the WAV container's data length is a
+        // u32 (hound, and the format itself), so anything over 4 GiB (~6.2 h of
+        // 44.1 kHz mono s16) silently wraps and ffmpeg then sees a truncated
+        // book.  ffmpeg reads raw s16le of any length.
+        let tmp_wav = output.with_extension("_tmp_combined.pcm");
+        write_raw_pcm_i16(&combined, &tmp_wav)?;
+        info!("Temp PCM written: {}", tmp_wav.display());
 
         // ── 5. Encode to M4B ─────────────────────────────────────────────────
         let result = encode_m4b(
@@ -206,14 +214,30 @@ impl AudioMerger {
         // Clean up temp WAV
         let _ = std::fs::remove_file(&tmp_wav);
 
+        // Sanity-check the encoded duration against what we fed in.  If it is
+        // off, return an error so the caller does NOT delete the source WAVs.
+        let result = match result {
+            Ok(()) => verify_duration(output, total_samples, TARGET_SAMPLE_RATE).await,
+            e => e,
+        };
+
         match result {
             Ok(()) => {
                 info!("M4B written: {}", output.display());
+            }
+            Err(e) if e.to_string().starts_with("DURATION_MISMATCH") => {
+                return Err(e);
             }
             Err(e) => {
                 // ffmpeg unavailable or failed — emit WAV+CUE fallback
                 warn!("M4B encoding failed ({e}), writing WAV+CUE fallback");
                 let wav_out = output.with_extension("wav");
+                if (combined.len() as u64) * 2 > u32::MAX as u64 - 64 {
+                    anyhow::bail!(
+                        "ffmpeg failed ({e}) and the audio is too long (>4 GiB) for the \
+                         WAV fallback; install ffmpeg and re-run. Source WAVs were kept."
+                    );
+                }
                 write_wav_i16(&combined, TARGET_SAMPLE_RATE, TARGET_CHANNELS, &wav_out)?;
                 write_cue_sheet(
                     &wav_out,
@@ -357,6 +381,48 @@ fn write_wav_i16(samples: &[i16], sample_rate: u32, channels: u16, path: &Path) 
     Ok(())
 }
 
+fn write_raw_pcm_i16(samples: &[i16], path: &Path) -> Result<()> {
+    use std::io::Write;
+    let mut w = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(path)
+        .with_context(|| format!("Cannot create {}", path.display()))?);
+    for chunk in samples.chunks(1 << 16) {
+        let bytes: Vec<u8> = chunk.iter().flat_map(|s| s.to_le_bytes()).collect();
+        w.write_all(&bytes)?;
+    }
+    w.flush()?;
+    Ok(())
+}
+
+/// Compare the encoded file's duration (via ffprobe) with the expected one.
+/// Skipped (with a warning) if ffprobe is unavailable.
+async fn verify_duration(output: &Path, total_samples: u64, sample_rate: u32) -> Result<()> {
+    let expected = total_samples as f64 / sample_rate as f64;
+    let probe = find_ffmpeg().map(|f| f.with_file_name(
+        if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" }));
+    let Some(probe) = probe.filter(|p| p.exists()).or_else(|| Some(PathBuf::from("ffprobe"))) else { return Ok(()) };
+    let out = tokio::process::Command::new(&probe)
+        .args(["-v", "error", "-show_entries", "format=duration",
+               "-of", "default=nw=1:nk=1"])
+        .arg(output)
+        .output()
+        .await;
+    let Ok(out) = out else {
+        warn!("ffprobe not available; skipping output duration check");
+        return Ok(());
+    };
+    let actual: f64 = match String::from_utf8_lossy(&out.stdout).trim().parse() {
+        Ok(v) => v,
+        Err(_) => { warn!("could not read output duration; skipping check"); return Ok(()); }
+    };
+    if (actual - expected).abs() > expected * 0.01 + 2.0 {
+        anyhow::bail!(
+            "DURATION_MISMATCH: encoded file is {actual:.0}s but expected {expected:.0}s. \
+             Source WAVs were kept; the output is likely truncated."
+        );
+    }
+    Ok(())
+}
+
 fn f32_to_i16(v: f32) -> i16 {
     (v.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
 }
@@ -385,41 +451,26 @@ fn compress_i16(samples: &mut [i16], sample_rate: u32, cfg: &CompressorSettings)
 
     let n = samples.len();
 
-    // Pre-compute normalised float samples once — avoids repeated int→float casts
-    // and eliminates the catastrophic cancellation that caused drift in the
-    // incremental sum-of-squares when applied to 50+ million samples.
-    let floats: Vec<f32> = samples.iter().map(|&s| s as f32 * scale).collect();
-
-    // Precompute RMS per sample using an exact sliding window.
-    // Every `rms_len` samples we fully re-accumulate sum_sq from scratch to
-    // flush any residual f32 rounding error.
-    let mut rms_values: Vec<f32> = Vec::with_capacity(n);
-    {
-        let mut sum_sq = 0.0_f32;
-        // Seed with first window
-        let seed_end = rms_len.min(n);
-        for &f in &floats[..seed_end] { sum_sq += f * f; }
-
-        for i in 0..n {
-            // Slide: add incoming sample, remove outgoing
-            if i + rms_len < n { sum_sq += floats[i + rms_len] * floats[i + rms_len]; }
-            if i > 0           { sum_sq = (sum_sq - floats[i - 1] * floats[i - 1]).max(0.0); }
-
-            // Periodic exact re-accumulation every `rms_len` samples to prevent drift
-            if i > 0 && i % rms_len == 0 {
-                let lo = i.min(n.saturating_sub(rms_len));
-                let hi = (lo + rms_len).min(n);
-                sum_sq = floats[lo..hi].iter().map(|&f| f * f).sum();
-            }
-
-            rms_values.push((sum_sq / rms_len as f32).sqrt());
-        }
+    // Streaming implementation: O(1) extra memory.  (The previous version
+    // materialised two full-length f32 Vecs, i.e. 2 x 4 bytes x N -- ~17 GB
+    // for a 13-hour book -- and was OOM-killed.)
+    //
+    // RMS is taken over the forward window [i, i+rms_len).  Samples at index
+    // > i are still the originals (only indices <= i have been overwritten),
+    // and the outgoing sample's original value is read before overwriting it.
+    // The running sum is f64 so it does not drift over billions of samples.
+    let mut sum_sq = 0.0_f64;
+    for &s in &samples[..rms_len.min(n)] {
+        let f = s as f32 * scale;
+        sum_sq += (f * f) as f64;
     }
 
     let mut gain_db_smooth = 0.0_f32;
 
     for i in 0..n {
-        let rms = rms_values[i];
+        let orig = samples[i] as f32 * scale;
+
+        let rms = ((sum_sq.max(0.0) / rms_len as f64).sqrt()) as f32;
         let level_db = if rms > 1e-9 { 20.0 * rms.log10() } else { -120.0 };
 
         let over = level_db - cfg.threshold_db;
@@ -433,7 +484,15 @@ fn compress_i16(samples: &mut [i16], sample_rate: u32, cfg: &CompressorSettings)
         gain_db_smooth += coeff * (target_gain_db - gain_db_smooth);
 
         let total_linear = db_to_linear(gain_db_smooth) * makeup_linear;
-        let f_out = (floats[i] * total_linear).clamp(-limit_linear, limit_linear);
+        let f_out = (orig * total_linear).clamp(-limit_linear, limit_linear);
+
+        // Slide the window to [i+1, i+1+rms_len) before overwriting samples[i].
+        sum_sq -= (orig * orig) as f64;
+        if i + rms_len < n {
+            let incoming = samples[i + rms_len] as f32 * scale;
+            sum_sq += (incoming * incoming) as f64;
+        }
+
         samples[i] = (f_out * i16::MAX as f32) as i16;
     }
 }
@@ -481,6 +540,9 @@ async fn encode_m4b(
     // Input 2 (optional): cover image
     let mut cmd = tokio::process::Command::new(&ffmpeg);
     cmd.arg("-y")
+        .args(["-f", "s16le", "-ar"])
+        .arg(sample_rate.to_string())
+        .args(["-ac", &TARGET_CHANNELS.to_string()])
         .arg("-i")
         .arg(input_wav);
 
